@@ -386,6 +386,10 @@ function useDailySnapshot(storageKey, initialRows) {
 /* Componenta SnapshotBar - pentru compararea datelor între două date - ADAPTABILĂ LA TEMĂ */
 const SnapshotBar = ({ date, setDate, compare, setCompare, totalToday, totalCompare, label = "Diferență", isDarkTheme = true }) => {
   const diff = (totalToday ?? 0) - (totalCompare ?? 0);
+  
+  /* CORECTAT: Verifică dacă data de comparație este aceeași cu data curentă */
+  const isSameDate = date === compare;
+  
   return (
     <div className="flex flex-wrap items-center gap-3 mb-3">
       <div className="flex items-center gap-2">
@@ -406,7 +410,16 @@ const SnapshotBar = ({ date, setDate, compare, setCompare, totalToday, totalComp
         <input 
           type="date" 
           value={compare} 
-          onChange={(e)=>setCompare(e.target.value)} 
+          onChange={(e)=>{
+            const newCompare = e.target.value;
+            if (newCompare === date) {
+              // Dacă se încearcă să se selecteze aceeași dată, setează ziua anterioară
+              const prevDay = prevDayKey(date);
+              setCompare(prevDay);
+            } else {
+              setCompare(newCompare);
+            }
+          }} 
           className={`appearance-none px-3 py-2 rounded-lg border ${
             isDarkTheme 
               ? "bg-white/10 border-white/20 text-white/90" 
@@ -415,11 +428,16 @@ const SnapshotBar = ({ date, setDate, compare, setCompare, totalToday, totalComp
         />
       </div>
       <div className={`ml-auto px-3 py-2 rounded-lg border ${
-        diff>=0
-          ? "bg-emerald-500/10 border-emerald-400/30 text-emerald-300"
-          : "bg-rose-500/10 border-rose-400/30 text-rose-300"
+        isSameDate 
+          ? "bg-gray-500/10 border-gray-400/30 text-gray-300"
+          : diff>=0
+            ? "bg-emerald-500/10 border-emerald-400/30 text-emerald-300"
+            : "bg-rose-500/10 border-rose-400/30 text-rose-300"
       }`}>
-        {label}: {diff>=0?"+":""}{fmt(Math.round(diff))} lei
+        {isSameDate 
+          ? `${label}: N/A (aceeași dată)`
+          : `${label}: ${diff>=0?"+":""}${fmt(Math.round(diff))} lei`
+        }
       </div>
     </div>
   );
@@ -465,10 +483,15 @@ function MonthlyExpenses({ guard, isDarkTheme = true }) {
   const totalPurch = useMemo(() => purchases.reduce((s,r)=> s + toNum(r.pret), 0), [purchases]);
   const diff = totalSources - totalPurch;
 
-  /* Sincronizarea datelor între surse și cheltuieli să folosească aceeași dată */
+  /* CORECTAT: Sincronizarea datelor între surse și cheltuieli să folosească aceeași dată */
   useEffect(() => {
     setPurchDate(sourcesDate);
   }, [sourcesDate, setPurchDate]);
+
+  /* CORECTAT: Sincronizează și data de comparație pentru cheltuieli */
+  useEffect(() => {
+    setPurchCmp(sourcesCmp);
+  }, [sourcesCmp, setPurchCmp]);
 
   /* CORECTAT: Sincronizează cu data globală din App */
   useEffect(() => {
@@ -476,6 +499,15 @@ function MonthlyExpenses({ guard, isDarkTheme = true }) {
       setSourcesDate(window.globalAppDate);
     }
   }, [window.globalAppDate, sourcesDate, setSourcesDate]);
+
+  /* CORECTAT: Sincronizează și data de comparație cu data globală */
+  useEffect(() => {
+    if (window.globalAppDate && sourcesCmp === window.globalAppDate) {
+      // Dacă data de comparație este aceeași cu data curentă, setează-o pe ziua anterioară
+      const prevDay = prevDayKey(window.globalAppDate);
+      setSourcesCmp(prevDay);
+    }
+  }, [window.globalAppDate, sourcesCmp, setSourcesCmp]);
 
   return (
     <GlassCard title="Cheltuieli lunare (salvare pe zile)" isDarkTheme={isDarkTheme}>
@@ -486,7 +518,11 @@ function MonthlyExpenses({ guard, isDarkTheme = true }) {
         compare={sourcesCmp} 
         setCompare={setSourcesCmp} 
         totalToday={totalSources - totalPurch} 
-        totalCompare={(getSourcesRows(sourcesCmp)||sourcesInitial).reduce((s,r)=> s + toNum(r.suma), 0) - (getPurchRows(purchCmp)||purchasesInitial).reduce((s,r)=> s + toNum(r.pret), 0)} 
+        totalCompare={(() => {
+          const sourcesCompare = (getSourcesRows(sourcesCmp)||sourcesInitial).reduce((s,r)=> s + toNum(r.suma), 0);
+          const purchasesCompare = (getPurchRows(purchCmp)||purchasesInitial).reduce((s,r)=> s + toNum(r.pret), 0);
+          return sourcesCompare - purchasesCompare;
+        })()} 
         label="Diferență economii"
         isDarkTheme={isDarkTheme}
       />
