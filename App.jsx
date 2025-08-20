@@ -457,7 +457,7 @@ const defaultPurchases = ["LOLITA","PPC","ENGIE","YOXO","DIGI","APACANAL","ECOVO
    =============================================== */
 
 
-function MonthlyExpenses({ guard, isDarkTheme = true }) {
+function MonthlyExpenses({ guard, isDarkTheme = true, globalDate, setGlobalDate }) {
   /* Datele inițiale pentru surse și cheltuieli */
   const sourcesInitial = [
     { suma:319, sursa:"BT PFA" },{ suma:813, sursa:"REVOLUT" },{ suma:0, sursa:"CARMEN" },{ suma:16, sursa:"BT PERSONAL" },
@@ -474,47 +474,39 @@ function MonthlyExpenses({ guard, isDarkTheme = true }) {
     { pret:0, cumparaturi:"PROCURA ANAF" },{ pret:0, cumparaturi:"TATUAJ" },{ pret:0, cumparaturi:"GENE" }
   ];
 
-  /* CORECTAT: Acum folosește useDailySnapshot pentru salvare pe zile */
-  const { date: sourcesDate, setDate: setSourcesDate, compare: sourcesCmp, setCompare: setSourcesCmp, rows: sources, setRows: setSources, getRows: getSourcesRows } = useDailySnapshot("monthlySources", sourcesInitial);
-  const { date: purchDate, setDate: setPurchDate, compare: purchCmp, setCompare: setPurchCmp, rows: purchases, setRows: setPurchases, getRows: getPurchRows } = useDailySnapshot("monthlyPurchases", purchasesInitial);
+  /* CORECTAT: Folosește data globală în loc de date locale */
+  const { compare: sourcesCmp, setCompare: setSourcesCmp, rows: sources, setRows: setSources, getRows: getSourcesRows } = useDailySnapshot("monthlySources", sourcesInitial);
+  const { compare: purchCmp, setCompare: setPurchCmp, rows: purchases, setRows: setPurchases, getRows: getPurchRows } = useDailySnapshot("monthlyPurchases", purchasesInitial);
 
-  /* Calculele pentru totaluri */
-  const totalSources = useMemo(() => sources.reduce((s,r)=> s + toNum(r.suma), 0), [sources]);
-  const totalPurch = useMemo(() => purchases.reduce((s,r)=> s + toNum(r.pret), 0), [purchases]);
+  /* CORECTAT: Obține datele pentru data globală curentă */
+  const sourcesForGlobalDate = getSourcesRows(globalDate) || sourcesInitial;
+  const purchasesForGlobalDate = getPurchRows(globalDate) || purchasesInitial;
+
+  /* CORECTAT: Calculele pentru totaluri folosind datele pentru data globală */
+  const totalSources = useMemo(() => sourcesForGlobalDate.reduce((s,r)=> s + toNum(r.suma), 0), [sourcesForGlobalDate]);
+  const totalPurch = useMemo(() => purchasesForGlobalDate.reduce((s,r)=> s + toNum(r.pret), 0), [purchasesForGlobalDate]);
   const diff = totalSources - totalPurch;
-
-  /* CORECTAT: Sincronizarea datelor între surse și cheltuieli să folosească aceeași dată */
-  useEffect(() => {
-    setPurchDate(sourcesDate);
-  }, [sourcesDate, setPurchDate]);
 
   /* CORECTAT: Sincronizează și data de comparație pentru cheltuieli */
   useEffect(() => {
     setPurchCmp(sourcesCmp);
   }, [sourcesCmp, setPurchCmp]);
 
-  /* CORECTAT: Sincronizează cu data globală din App */
+  /* CORECTAT: Sincronizează data de comparație cu data globală */
   useEffect(() => {
-    if (window.globalAppDate && window.globalAppDate !== sourcesDate) {
-      setSourcesDate(window.globalAppDate);
-    }
-  }, [window.globalAppDate, sourcesDate, setSourcesDate]);
-
-  /* CORECTAT: Sincronizează și data de comparație cu data globală */
-  useEffect(() => {
-    if (window.globalAppDate && sourcesCmp === window.globalAppDate) {
+    if (globalDate && sourcesCmp === globalDate) {
       // Dacă data de comparație este aceeași cu data curentă, setează-o pe ziua anterioară
-      const prevDay = prevDayKey(window.globalAppDate);
+      const prevDay = prevDayKey(globalDate);
       setSourcesCmp(prevDay);
     }
-  }, [window.globalAppDate, sourcesCmp, setSourcesCmp]);
+  }, [globalDate, sourcesCmp, setSourcesCmp]);
 
   return (
     <GlassCard title="Cheltuieli lunare (salvare pe zile)" isDarkTheme={isDarkTheme}>
       {/* Bara pentru selecția și compararea datelor */}
       <SnapshotBar 
-        date={sourcesDate} 
-        setDate={setSourcesDate} 
+        date={globalDate} 
+        setDate={setGlobalDate} 
         compare={sourcesCmp} 
         setCompare={setSourcesCmp} 
         totalToday={totalSources - totalPurch} 
@@ -529,34 +521,46 @@ function MonthlyExpenses({ guard, isDarkTheme = true }) {
       
       <div className="flex flex-wrap gap-3 mb-4">
         <IconBtn title="Export CSV" isDarkTheme={isDarkTheme} onClick={()=>{
-          const head1 = ["TOTAL BANI LUNARI", sourcesDate, "SURSE"];
-          const rows1 = sources.map(r => [toNum(r.suma), r.sursa]);
+          const head1 = ["TOTAL BANI LUNARI", globalDate, "SURSE"];
+          const rows1 = sourcesForGlobalDate.map(r => [toNum(r.suma), r.sursa]);
           const tot1 = [["TOTAL", totalSources]];
           const spacer = [[""],[""]];
           const head2 = [["PRET CHELTUIELI","CUMPARATURI"]];
-          const rows2 = purchases.map(r => [toNum(r.pret), r.cumparaturi]);
+          const rows2 = purchasesForGlobalDate.map(r => [toNum(r.pret), r.cumparaturi]);
           const tot2 = [["TOTAL", totalPurch]];
           const foot = [["CAT MAI RAMAN DUPA CHELTUIELI"],["TOTAL", diff]];
-          downloadCSV(`Cheltuieli_${sourcesDate}.csv`, [head1, ...rows1, ...tot1, ...spacer, ...head2, ...rows2, ...tot2, ...spacer, ...foot], guard);
+          downloadCSV(`Cheltuieli_${globalDate}.csv`, [head1, ...rows1, ...tot1, ...spacer, ...head2, ...rows2, ...tot2, ...spacer, ...foot], guard);
         }}>⬇️ CSV</IconBtn>
         <IconBtn title="Reset zi" isDarkTheme={isDarkTheme} onClick={() => {
-          setSources(sourcesInitial.map(s=>({...s, suma: 0})));
-          setPurchases(purchasesInitial.map(p=>({...p, pret: 0})));
+          const resetSources = sourcesInitial.map(s=>({...s, suma: 0}));
+          const resetPurchases = purchasesInitial.map(p=>({...p, pret: 0}));
+          setSources(resetSources);
+          setPurchases(resetPurchases);
+          // Actualizează și localStorage pentru data globală
+          const sourcesMap = { ...JSON.parse(localStorage.getItem("monthlySources") || "{}"), [globalDate]: resetSources };
+          const purchasesMap = { ...JSON.parse(localStorage.getItem("monthlyPurchases") || "{}"), [globalDate]: resetPurchases };
+          localStorage.setItem("monthlySources", JSON.stringify(sourcesMap));
+          localStorage.setItem("monthlyPurchases", JSON.stringify(purchasesMap));
         }}>🧹 Reset zi</IconBtn>
       </div>
       
       <div className="grid md:grid-cols-2 gap-6">
         <div>
           <h3 className={`mb-2 font-semibold ${isDarkTheme ? "text-white" : "text-gray-800"}`}>
-            TOTAL BANI LUNARI {sourcesDate}
+            TOTAL BANI LUNARI {globalDate}
           </h3>
           <Table 
             columns={[
               { key:"suma", label:"Suma", type:"number", total:true, step:1 },
               { key:"sursa", label:"Sursă" }
             ]} 
-            rows={sources} 
-            setRows={setSources} 
+            rows={sourcesForGlobalDate} 
+            setRows={(newRows) => {
+              setSources(newRows);
+              // Actualizează și datele pentru data globală
+              const updatedMap = { ...JSON.parse(localStorage.getItem("monthlySources") || "{}"), [globalDate]: newRows };
+              localStorage.setItem("monthlySources", JSON.stringify(updatedMap));
+            }} 
             totalsLabel="TOTAL" 
             guard={guard}
             isDarkTheme={isDarkTheme}
@@ -571,8 +575,13 @@ function MonthlyExpenses({ guard, isDarkTheme = true }) {
               { key:"pret", label:"Preț cheltuieli", type:"number", total:true, step:1 },
               { key:"cumparaturi", label:"Cumpărături" }
             ]} 
-            rows={purchases} 
-            setRows={setPurchases} 
+            rows={purchasesForGlobalDate} 
+            setRows={(newRows) => {
+              setPurchases(newRows);
+              // Actualizează și datele pentru data globală
+              const updatedMap = { ...JSON.parse(localStorage.getItem("monthlyPurchases") || "{}"), [globalDate]: newRows };
+              localStorage.setItem("monthlyPurchases", JSON.stringify(updatedMap));
+            }} 
             totalsLabel="TOTAL" 
             guard={guard}
             isDarkTheme={isDarkTheme}
@@ -1511,7 +1520,7 @@ export default function App() {
         )}
 
         {/* TABUL "CHELTUIELI LUNARE" - Apelarea componentei MonthlyExpenses CORECTAT */}
-        {tab==="monthly" && <MonthlyExpenses guard={ensureUnlocked} isDarkTheme={isDarkTheme} />}
+        {tab==="monthly" && <MonthlyExpenses guard={ensureUnlocked} isDarkTheme={isDarkTheme} globalDate={globalDate} setGlobalDate={setGlobalDate} />}
 
 		{/* TABUL "MAIE.RO" - Aplicația separată MAIE.RO */}
         {tab==="maie" && <MaieApp isDarkTheme={isDarkTheme} />}
